@@ -50,6 +50,10 @@ const refreshSerialPorts = () => {
                 return;
             } 
 
+            if (ports.length === 1) {
+                selectedSerialPort = serialPorts[0];
+            }
+
             ports.forEach(port => {
                 const option = document.createElement('option') as HTMLOptionElement;
                 option.text = port.path;
@@ -66,6 +70,55 @@ const refreshSerialPorts = () => {
         });
 }
 
+let controllerPorts: Gamepad[];
+let selectedControllerPort: number;
+const refreshControllers = () => {
+    for (let i = 0; i < controllerDiv.length; i++) controllerDiv.remove(i);
+
+    controllerPorts = Array.from(navigator.getGamepads()).filter(controller => controller != null)
+    if (controllerPorts.length === 0) {
+        const option = document.createElement('option') as HTMLOptionElement;
+        option.text = "No controllers detected";
+        controllerDiv.add(option);
+        return;
+    }
+
+    if (controllerPorts.length === 1) {
+        selectedControllerPort = 0;
+    }
+
+    controllerPorts.forEach(controller => {
+        const option = document.createElement('option') as HTMLOptionElement;
+        option.text = controller.id;
+        controllerDiv.add(option);
+    });
+}
+
+const axisBuffer = Buffer.alloc(4);
+const buttonBuffer = Buffer.alloc(4);
+let serialPort: SerialPort;
+const readController = () => {
+    if (selectedControllerPort == undefined) return;
+    console.log('Sending');
+
+    const gamepad = navigator.getGamepads()[selectedControllerPort];
+    const axes = gamepad.axes.map(axes => Math.round((axes + 1) / 2 * 255));
+    axes.forEach((axe, index) => axisBuffer[index] = axe)
+
+    const buttons = gamepad.buttons.map(button => button.pressed ? 1 : 0);
+
+    buttons.forEach((button, index) => {
+        const i = Math.floor(index / 8);
+        buttonBuffer[i] = (buttonBuffer[i] & ~(1 << (index % 8))) | (button << (index % 8))
+    })
+
+    const toSend = Buffer.concat([axisBuffer, buttonBuffer])
+    if (serialPort === undefined) {
+        serialPort = new SerialPort(selectedSerialPort.path, { baudRate: 115200 })
+    }
+    serialPort.write(toSend);
+}
+
 const serialPortsDiv = document.getElementById('serialports') as HTMLSelectElement;
 serialPortsDiv.addEventListener('change', () => {
     console.log("New serial port index selected");
@@ -73,10 +126,22 @@ serialPortsDiv.addEventListener('change', () => {
     selectedSerialPort = serialPorts[index];
 })
 
-const refreshButton = document.getElementById('refresh') as HTMLButtonElement
-refreshButton.addEventListener('click', () => {
+const refreshSerialButton = document.getElementById('refreshserial') as HTMLButtonElement
+refreshSerialButton.addEventListener('click', () => {
     refreshSerialPorts();
 })
 refreshSerialPorts();
 
-// window.open('https://github.com', '_blank', 'top=500,left=200,frame=false,nodeIntegration=no')
+const controllerDiv = document.getElementById('controllers') as HTMLSelectElement;
+controllerDiv.addEventListener('change', () => {
+    console.log("New controller port index selected");
+    selectedControllerPort = controllerDiv.selectedIndex;
+})
+
+const refreshControllerButton = document.getElementById('refreshcontrollers') as HTMLButtonElement
+refreshControllerButton.addEventListener('click', () => {
+    refreshControllers();
+})
+refreshControllers();
+
+setInterval(readController, 20);
